@@ -120,7 +120,7 @@ export function PublicTalentProfileForm() {
         <Field label="Location"><input name="locationName" className="form-field" placeholder="Chicago, IL" /></Field>
         <Field label="Resume upload"><input name="resumeFile" type="file" accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" required className="form-field file:mr-3 file:rounded-md file:border-0 file:bg-[#eef2ff] file:px-3 file:py-2 file:text-xs file:font-black file:text-[#3820d7]" /></Field>
         <Field label="Portfolio link"><input name="portfolioUrl" type="url" className="form-field" placeholder="https://..." /></Field>
-        <Field label="Preferred company slug"><input name="preferredTenantSlug" className="form-field" placeholder="acme-health" /></Field>
+        <Field label="Preferred company slug"><input name="preferredTenantSlug" className="form-field" placeholder="company-slug" /></Field>
         <Field label="Availability"><input name="availabilityNote" className="form-field" placeholder="Two weeks notice" /></Field>
       </div>
 
