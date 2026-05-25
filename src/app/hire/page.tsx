@@ -7,15 +7,13 @@ import {
   FileCheck2,
   MapPin,
   Search,
-  Sparkles,
   UserRoundPlus,
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
 
+import { HireTinyHeader } from "@/components/hire/hire-tiny-header";
 import { PublicTalentProfileForm } from "@/components/hire/public-talent-profile-form";
-import { Footer } from "@/components/landing/footer";
-import { Header } from "@/components/landing/header";
 import { tryServerApiJson } from "@/lib/api/server";
 import type { PublicHiringMarketplace, PublicMarketplaceJobSummary, PublicTalentProfilePreview } from "@/lib/recruitment/types";
 
@@ -39,62 +37,59 @@ export default async function HirePage({ searchParams }: HirePageProps) {
 
   return (
     <>
-      <Header />
-      <main className="min-h-screen bg-[#f6f8fc]">
-        <section className="relative min-h-[520px] overflow-hidden bg-[#10142f] text-white">
-          <Image
-            src="/images/work.png"
-            alt="People working together in a modern hiring workspace"
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover opacity-55"
-          />
-          <div className="absolute inset-0 bg-[#10142f]/58" />
-          <div className="relative mx-auto flex min-h-[520px] max-w-7xl flex-col justify-end px-4 py-10">
-            <div className="max-w-4xl">
-              <div className="flex flex-wrap gap-2">
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/12 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-white">
-                  <BriefcaseBusiness size={14} />
-                  TimeSync Hire
-                </span>
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/12 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-white">
-                  <Sparkles size={14} />
-                  Public jobs and talent profiles
-                </span>
+      <HireTinyHeader />
+      <main className="min-h-screen bg-[#f6f8fc] pb-8">
+        <section className="mx-auto max-w-7xl px-4 pt-4">
+          <div className="relative overflow-hidden rounded-lg bg-[#10142f] text-white shadow-[0_22px_60px_rgba(17,20,58,0.16)]">
+            <Image
+              src="/images/hire_hero.png"
+              alt="Hiring marketplace background"
+              fill
+              priority
+              sizes="100vw"
+              className="object-cover"
+            />
+            <div className="absolute inset-0 bg-[#10142f]/18" />
+            <div className="relative grid min-h-[340px] items-center gap-6 px-5 py-6 md:min-h-[360px] md:px-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="max-w-2xl">
+                <p className="text-xs font-black uppercase tracking-[0.1em] text-white/70">TimeSync Hire</p>
+                <h1 className="mt-3 text-4xl font-black leading-none md:text-6xl">Hire. Apply. Move faster.</h1>
+                <form action="/hire" className="mt-6 grid max-w-3xl gap-2 rounded-lg border border-white/18 bg-white p-2 shadow-[0_18px_45px_rgba(0,0,0,0.22)] md:grid-cols-[1fr_190px_auto]">
+                  <label className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a95aa]" size={18} />
+                    <input name="search" defaultValue={search} className="h-11 w-full rounded-md border border-transparent bg-[#f6f8fc] pl-10 pr-3 text-sm font-bold text-[#11143a] outline-none focus:border-[#3820d7]" placeholder="Role or company" />
+                  </label>
+                  <label className="relative">
+                    <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a95aa]" size={18} />
+                    <input name="location" defaultValue={location} className="h-11 w-full rounded-md border border-transparent bg-[#f6f8fc] pl-10 pr-3 text-sm font-bold text-[#11143a] outline-none focus:border-[#3820d7]" placeholder="Location" />
+                  </label>
+                  <button className="h-11 rounded-md bg-[#2b1ab8] px-5 text-sm font-black text-white">Search</button>
+                </form>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href="/hire/signup" className="inline-flex h-10 items-center gap-2 rounded-md bg-white px-3 text-sm font-black text-[#1f128a]">
+                    <UserRoundPlus size={16} />
+                    Candidate profile
+                  </Link>
+                  <Link href="/careers/acme-health" className="inline-flex h-10 items-center gap-2 rounded-md border border-white/25 bg-white/10 px-3 text-sm font-black text-white">
+                    <BriefcaseBusiness size={16} />
+                    Acme jobs
+                  </Link>
+                </div>
               </div>
-              <h1 className="mt-5 text-5xl font-black leading-[0.98] md:text-7xl">
-                Find work. Find talent. Keep hiring governed.
-              </h1>
-              <p className="mt-5 max-w-3xl text-base font-semibold leading-7 text-white/78 md:text-lg">
-                A public hiring marketplace powered by tenant career boards. Employers publish from governed recruitment workflows; applicants browse open jobs and create discoverable profiles.
-              </p>
-              <form action="/hire" className="mt-8 grid max-w-4xl gap-2 rounded-lg border border-white/18 bg-white p-2 shadow-[0_24px_70px_rgba(0,0,0,0.25)] md:grid-cols-[1fr_220px_auto]">
-                <label className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a95aa]" size={18} />
-                  <input name="search" defaultValue={search} className="h-12 w-full rounded-md border border-transparent bg-[#f6f8fc] pl-10 pr-3 text-sm font-bold text-[#11143a] outline-none focus:border-[#3820d7]" placeholder="Search roles, companies, departments" />
-                </label>
-                <label className="relative">
-                  <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8a95aa]" size={18} />
-                  <input name="location" defaultValue={location} className="h-12 w-full rounded-md border border-transparent bg-[#f6f8fc] pl-10 pr-3 text-sm font-bold text-[#11143a] outline-none focus:border-[#3820d7]" placeholder="Location" />
-                </label>
-                <button className="h-12 rounded-md bg-[#2b1ab8] px-6 text-sm font-black text-white">Search jobs</button>
-              </form>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Link href="/hire/signup" className="inline-flex h-11 items-center gap-2 rounded-md bg-white px-4 text-sm font-black text-[#1f128a]">
-                  <UserRoundPlus size={16} />
-                  Create candidate profile
-                </Link>
-                <Link href="/careers/acme-health" className="inline-flex h-11 items-center gap-2 rounded-md border border-white/25 bg-white/12 px-4 text-sm font-black text-white">
-                  <BriefcaseBusiness size={16} />
-                  Acme careers
-                </Link>
+              <div className="relative hidden h-56 overflow-hidden rounded-lg border border-white/12 lg:block">
+                <Image
+                  src="/images/hire.png"
+                  alt="Hiring profile and job matching visual"
+                  fill
+                  sizes="360px"
+                  className="object-cover"
+                />
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto grid max-w-7xl gap-3 px-4 py-5 md:grid-cols-3">
+        <section className="mx-auto grid max-w-7xl gap-3 px-4 py-4 md:grid-cols-3">
           <Metric icon={BriefcaseBusiness} label="Open jobs" value={marketplace.metrics.openJobs} tone="blue" />
           <Metric icon={Building2} label="Companies hiring" value={marketplace.metrics.companies} tone="green" />
           <Metric icon={UsersRound} label="Talent profiles" value={marketplace.metrics.talentProfiles} tone="violet" />
@@ -102,7 +97,7 @@ export default async function HirePage({ searchParams }: HirePageProps) {
 
         <section className="mx-auto grid max-w-7xl gap-6 px-4 pb-10 lg:grid-cols-[1fr_420px]">
           <div className="space-y-6">
-            <div className="overflow-hidden rounded-lg border border-[#dfe8f6] bg-white shadow-[0_18px_45px_rgba(18,31,67,0.05)]">
+            <div id="jobs" className="overflow-hidden rounded-lg border border-[#dfe8f6] bg-white shadow-[0_18px_45px_rgba(18,31,67,0.05)]">
               <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#edf1f7] p-5">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.08em] text-[#63708a]">Marketplace jobs</p>
@@ -132,7 +127,7 @@ export default async function HirePage({ searchParams }: HirePageProps) {
               ))}
             </section>
 
-            <div className="overflow-hidden rounded-lg border border-[#dfe8f6] bg-white shadow-[0_18px_45px_rgba(18,31,67,0.05)]">
+            <div id="talent" className="overflow-hidden rounded-lg border border-[#dfe8f6] bg-white shadow-[0_18px_45px_rgba(18,31,67,0.05)]">
               <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#edf1f7] p-5">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.08em] text-[#63708a]">Candidate marketplace</p>
@@ -174,7 +169,6 @@ export default async function HirePage({ searchParams }: HirePageProps) {
           </aside>
         </section>
       </main>
-      <Footer />
     </>
   );
 }
