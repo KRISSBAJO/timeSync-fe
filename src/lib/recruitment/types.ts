@@ -12,6 +12,7 @@ export type RecruitmentInterviewStatus = "SCHEDULED" | "COMPLETED" | "CANCELLED"
 export type RecruitmentFeedbackRecommendation = "STRONG_YES" | "YES" | "MIXED" | "NO" | "STRONG_NO";
 export type RecruitmentOfferStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "EXTENDED" | "ACCEPTED" | "DECLINED" | "REJECTED" | "WITHDRAWN";
 export type RecruitmentPostingStatus = "DRAFT" | "PUBLISHED" | "PAUSED" | "CLOSED" | "ARCHIVED";
+export type RecruitmentTalentProfileStatus = "ACTIVE" | "HIDDEN" | "ARCHIVED";
 
 export type PaginatedRecruitment<T> = {
   data: T[];
@@ -347,11 +348,44 @@ export type PublicJobSummary = Pick<
   };
 };
 
+export type PublicMarketplaceJobSummary = PublicJobSummary & {
+  tenant: PublicCareersTenant;
+  publicUrl: string;
+};
+
 export type PublicJobDetail = PublicJobSummary & Pick<RecruitmentJobPosting, "description" | "requirements" | "questionSet" | "consentText">;
 
 export type PublicCareersBoard = {
   tenant: PublicCareersTenant;
   data: PublicJobSummary[];
+  page: {
+    limit: number;
+    total: number;
+  };
+};
+
+export type PublicTalentProfilePreview = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  desiredTitle?: string | null;
+  locationName?: string | null;
+  skills: string[];
+  workModes: RecruitmentWorkMode[];
+  employmentTypes: RecruitmentEmploymentType[];
+  updatedAt: string;
+};
+
+export type PublicHiringMarketplace = {
+  generatedAt: string;
+  metrics: {
+    openJobs: number;
+    companies: number;
+    talentProfiles: number;
+  };
+  data: PublicMarketplaceJobSummary[];
+  talentProfiles: PublicTalentProfilePreview[];
   page: {
     limit: number;
     total: number;
@@ -381,6 +415,19 @@ export type PublicApplicationResponse = {
     } | null;
   };
   job: PublicJobSummary;
+};
+
+export type PublicTalentProfileResponse = {
+  received: boolean;
+  profile: {
+    id: string;
+    status: RecruitmentTalentProfileStatus;
+    displayName: string;
+    desiredTitle?: string | null;
+    locationName?: string | null;
+    skills: string[];
+    updatedAt: string;
+  };
 };
 
 export type RecruitmentDetailResponse<T> = {
