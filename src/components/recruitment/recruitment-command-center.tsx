@@ -10,8 +10,10 @@ import {
   CalendarClock,
   CheckCircle2,
   ClipboardCheck,
+  ExternalLink,
   Filter,
   GitPullRequestArrow,
+  Globe2,
   PanelTopOpen,
   PlusCircle,
   Search,
@@ -161,6 +163,7 @@ export function RecruitmentCommandCenter({
   const interviewRows = interviews?.data ?? [];
   const offerRows = offers?.data ?? [];
   const openRequisitionRows = requisitionRows.filter((row) => row.status === "OPEN" || row.status === "APPROVED");
+  const tenantSlug = session.tenant?.slug ?? "";
 
   useEffect(() => {
     if (modal?.type !== "detail") return;
@@ -466,14 +469,14 @@ export function RecruitmentCommandCenter({
                 onScheduleInterview={() => setModal({ type: "interview" })}
                 onCreateOffer={() => setModal({ type: "offer" })}
               />
-              <RequisitionTable rows={requisitionRows} permissions={permissions} setModal={setModal} quickAction={quickAction} openDetail={openDetail} />
+              <RequisitionTable rows={requisitionRows} permissions={permissions} tenantSlug={tenantSlug} setModal={setModal} quickAction={quickAction} openDetail={openDetail} />
               <PipelineBoard rows={applicationRows} permissions={permissions} setModal={setModal} openDetail={openDetail} />
               <PipelineTable rows={applicationRows.slice(0, 8)} permissions={permissions} setModal={setModal} openDetail={openDetail} />
             </>
           ) : null}
 
           {currentTab === "requisitions" ? (
-            <RequisitionTable rows={requisitionRows} permissions={permissions} setModal={setModal} quickAction={quickAction} openDetail={openDetail} />
+            <RequisitionTable rows={requisitionRows} permissions={permissions} tenantSlug={tenantSlug} setModal={setModal} quickAction={quickAction} openDetail={openDetail} />
           ) : null}
           {currentTab === "candidates" ? <CandidateTable rows={candidateRows} openDetail={openDetail} /> : null}
           {currentTab === "pipeline" ? (
@@ -505,6 +508,7 @@ export function RecruitmentCommandCenter({
                   modal={modal}
                   detailState={detailState}
                   permissions={permissions}
+                  tenantSlug={tenantSlug}
                   setModal={setModal}
                   postAction={postAction}
                 />
@@ -546,12 +550,14 @@ function ActionStrip({
 function RequisitionTable({
   rows,
   permissions,
+  tenantSlug,
   setModal,
   quickAction,
   openDetail,
 }: {
   rows: RecruitmentRequisition[];
   permissions: RecruitmentSummary["permissions"];
+  tenantSlug: string;
   setModal: (modal: ModalState) => void;
   quickAction: (endpoint: string, success: string) => void;
   openDetail: (entity: DetailEntity, row: DetailRecord) => void;
@@ -572,6 +578,25 @@ function RequisitionTable({
     { key: "mode", header: "Mode", render: (row) => <StatusBadge status={humanize(row.workMode)} /> },
     { key: "manager", header: "Hiring manager", render: (row) => employeeLabel(row.hiringManager) },
     { key: "apps", header: "Applications", render: (row) => row._count?.applications ?? 0 },
+    {
+      key: "posting",
+      header: "Posting",
+      render: (row) => (
+        <div className="space-y-1">
+          {row.jobPosting ? <StatusBadge status={row.jobPosting.status} /> : <span className="text-xs font-bold text-[#8a95aa]">Not published</span>}
+          {tenantSlug && row.jobPosting?.status === "PUBLISHED" ? (
+            <a
+              href={`/careers/${tenantSlug}/jobs/${row.jobPosting.slug}`}
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex items-center gap-1 text-xs font-black text-[#3820d7]"
+            >
+              Public page
+              <ExternalLink size={12} />
+            </a>
+          ) : null}
+        </div>
+      ),
+    },
     { key: "workflow", header: "Workflow", render: (row) => <WorkflowSteps approval={row.approvalRequest} /> },
     {
       key: "actions",
@@ -588,6 +613,12 @@ function RequisitionTable({
             </>
           ) : null}
           {permissions.manageRecruitment && row.status === "APPROVED" ? <TinyButton label="Open" onClick={() => quickAction(`/recruitment/requisitions/${row.id}/open`, "Requisition opened.")} /> : null}
+          {permissions.manageRecruitment && row.status === "OPEN" && row.jobPosting?.status !== "PUBLISHED" ? (
+            <TinyButton label="Publish" onClick={() => quickAction(`/recruitment/requisitions/${row.id}/publish`, "Job published to careers board.")} />
+          ) : null}
+          {permissions.manageRecruitment && row.jobPosting?.status === "PUBLISHED" ? (
+            <TinyButton label="Unpublish" tone="red" onClick={() => quickAction(`/recruitment/requisitions/${row.id}/unpublish`, "Job posting paused.")} />
+          ) : null}
         </div>
       ),
     },
@@ -602,7 +633,7 @@ function RequisitionTable({
       columns={columns}
       getRowKey={(row) => row.id}
       onRowClick={(row) => openDetail("requisition", row)}
-      minWidth="1120px"
+      minWidth="1260px"
       emptyTitle="No requisitions"
       emptyBody="Create a requisition to start a governed hiring workflow."
     />
@@ -1213,12 +1244,14 @@ function DetailPanel({
   modal,
   detailState,
   permissions,
+  tenantSlug,
   setModal,
   postAction,
 }: {
   modal: Extract<ModalState, { type: "detail" }>;
   detailState: DetailState | null;
   permissions: RecruitmentSummary["permissions"];
+  tenantSlug: string;
   setModal: (modal: ModalState) => void;
   postAction: (endpoint: string, body: Record<string, unknown>, success: string) => Promise<void>;
 }) {
@@ -1243,7 +1276,7 @@ function DetailPanel({
       {activeDetail?.error ? <div className="mt-4 rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm font-bold text-rose-700">{activeDetail.error}</div> : null}
 
       <div className="mt-5 space-y-5">
-        <DetailActionBar record={record} entity={modal.entity} permissions={permissions} setModal={setModal} postAction={postAction} />
+        <DetailActionBar record={record} entity={modal.entity} permissions={permissions} tenantSlug={tenantSlug} setModal={setModal} postAction={postAction} />
         {modal.entity === "requisition" ? <RequisitionDetail row={record as RecruitmentRequisition} /> : null}
         {modal.entity === "candidate" ? <CandidateDetail row={record as RecruitmentCandidate} /> : null}
         {modal.entity === "application" ? <ApplicationDetail row={record as RecruitmentApplication} /> : null}
@@ -1260,12 +1293,14 @@ function DetailActionBar({
   record,
   entity,
   permissions,
+  tenantSlug,
   setModal,
   postAction,
 }: {
   record: DetailRecord;
   entity: DetailEntity;
   permissions: RecruitmentSummary["permissions"];
+  tenantSlug: string;
   setModal: (modal: ModalState) => void;
   postAction: (endpoint: string, body: Record<string, unknown>, success: string) => Promise<void>;
 }) {
@@ -1284,6 +1319,18 @@ function DetailActionBar({
         ) : null}
         {permissions.manageRecruitment && row.status === "APPROVED" ? (
           <ActionButton icon={PanelTopOpen} label="Open requisition" onClick={() => void postAction(`/recruitment/requisitions/${row.id}/open`, {}, "Requisition opened.")} />
+        ) : null}
+        {permissions.manageRecruitment && row.status === "OPEN" && row.jobPosting?.status !== "PUBLISHED" ? (
+          <ActionButton icon={Globe2} label="Publish job" onClick={() => void postAction(`/recruitment/requisitions/${row.id}/publish`, {}, "Job published to careers board.")} />
+        ) : null}
+        {permissions.manageRecruitment && row.jobPosting?.status === "PUBLISHED" ? (
+          <ActionButton icon={XCircle} label="Unpublish job" onClick={() => void postAction(`/recruitment/requisitions/${row.id}/unpublish`, {}, "Job posting paused.")} />
+        ) : null}
+        {tenantSlug && row.jobPosting?.status === "PUBLISHED" ? (
+          <a href={`/careers/${tenantSlug}/jobs/${row.jobPosting.slug}`} className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#dfe8f6] bg-white px-3 text-sm font-black text-[#11143a] transition hover:border-[#4b22e8] hover:text-[#3820d7]">
+            <ExternalLink size={16} />
+            Public page
+          </a>
         ) : null}
       </div>
     );
@@ -1338,6 +1385,8 @@ function RequisitionDetail({ row }: { row: RecruitmentRequisition }) {
         ["Work mode", humanize(row.workMode)],
         ["Hiring manager", employeeLabel(row.hiringManager)],
         ["Recruiter", employeeLabel(row.recruiter)],
+        ["Posting", row.jobPosting ? `${humanize(row.jobPosting.status)} · ${row.jobPosting.slug}` : "Not published"],
+        ["Apply by", row.jobPosting?.applyBy ? formatDate(row.jobPosting.applyBy) : "Not set"],
         ["Pay range", `${formatMoney(row.salaryMinCents, row.currencyCode)} - ${formatMoney(row.salaryMaxCents, row.currencyCode)}`],
         ["Description", row.description ?? "Not captured"],
         ["Requirements", row.requirements ?? "Not captured"],

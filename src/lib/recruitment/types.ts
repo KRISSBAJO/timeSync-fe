@@ -11,6 +11,7 @@ export type RecruitmentStageType = "APPLIED" | "SCREENING" | "INTERVIEW" | "OFFE
 export type RecruitmentInterviewStatus = "SCHEDULED" | "COMPLETED" | "CANCELLED" | "NO_SHOW";
 export type RecruitmentFeedbackRecommendation = "STRONG_YES" | "YES" | "MIXED" | "NO" | "STRONG_NO";
 export type RecruitmentOfferStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "EXTENDED" | "ACCEPTED" | "DECLINED" | "REJECTED" | "WITHDRAWN";
+export type RecruitmentPostingStatus = "DRAFT" | "PUBLISHED" | "PAUSED" | "CLOSED" | "ARCHIVED";
 
 export type PaginatedRecruitment<T> = {
   data: T[];
@@ -83,9 +84,36 @@ export type RecruitmentRequisition = {
   hiringManager?: ScheduleEmployee | null;
   recruiter?: ScheduleEmployee | null;
   approvalRequest?: RecruitmentApprovalRequest | null;
+  jobPosting?: RecruitmentJobPosting | null;
   stages?: RecruitmentPipelineStage[];
   applications?: RecruitmentApplication[];
   _count?: { applications: number };
+};
+
+export type RecruitmentJobPosting = {
+  id: string;
+  requisitionId: string;
+  slug: string;
+  title: string;
+  summary?: string | null;
+  description?: string | null;
+  requirements?: string | null;
+  departmentName?: string | null;
+  locationName?: string | null;
+  employmentType?: RecruitmentEmploymentType | null;
+  workMode?: RecruitmentWorkMode | null;
+  salaryMinCents?: number | null;
+  salaryMaxCents?: number | null;
+  currencyCode: string;
+  status: RecruitmentPostingStatus;
+  internalOnly: boolean;
+  publishedAt?: string | null;
+  expiresAt?: string | null;
+  applyBy?: string | null;
+  questionSet?: PublicQuestionSet | null;
+  consentText?: string | null;
+  sourceLabel?: string | null;
+  requisition?: RecruitmentRequisition | null;
 };
 
 export type RecruitmentCandidate = {
@@ -264,6 +292,95 @@ export type RecruitmentAuditEvent = {
   after?: Record<string, unknown> | null;
   actor?: RecruitmentHistoryActor;
   createdAt: string;
+};
+
+export type PublicQuestion = {
+  id: string;
+  label: string;
+  type?: "short_text" | "long_text" | "yes_no" | "single_choice" | "multi_choice" | string;
+  required?: boolean;
+  options?: string[];
+};
+
+export type PublicQuestionSet = {
+  questions?: PublicQuestion[];
+};
+
+export type PublicCareersTenant = {
+  id: string;
+  name: string;
+  slug: string;
+  industry?: string | null;
+  website?: string | null;
+  supportEmail?: string | null;
+  supportPhone?: string | null;
+  branding?: {
+    logoUrl?: string | null;
+    primaryColor?: string | null;
+    secondaryColor?: string | null;
+    accentColor?: string | null;
+  } | null;
+};
+
+export type PublicJobSummary = Pick<
+  RecruitmentJobPosting,
+  | "id"
+  | "slug"
+  | "title"
+  | "summary"
+  | "departmentName"
+  | "locationName"
+  | "employmentType"
+  | "workMode"
+  | "salaryMinCents"
+  | "salaryMaxCents"
+  | "currencyCode"
+  | "publishedAt"
+  | "applyBy"
+  | "sourceLabel"
+> & {
+  requisition: {
+    id: string;
+    code: string;
+    headcount: number;
+    applications: number;
+  };
+};
+
+export type PublicJobDetail = PublicJobSummary & Pick<RecruitmentJobPosting, "description" | "requirements" | "questionSet" | "consentText">;
+
+export type PublicCareersBoard = {
+  tenant: PublicCareersTenant;
+  data: PublicJobSummary[];
+  page: {
+    limit: number;
+    total: number;
+  };
+};
+
+export type PublicJobDetailResponse = {
+  tenant: PublicCareersTenant;
+  job: PublicJobDetail;
+};
+
+export type PublicApplicationResponse = {
+  received: boolean;
+  alreadyApplied: boolean;
+  application: {
+    id: string;
+    status: RecruitmentApplicationStatus;
+    appliedAt: string;
+    currentStage?: {
+      name: string;
+      type: RecruitmentStageType;
+    } | null;
+    candidate?: {
+      firstName: string;
+      lastName: string;
+      email: string;
+    } | null;
+  };
+  job: PublicJobSummary;
 };
 
 export type RecruitmentDetailResponse<T> = {
