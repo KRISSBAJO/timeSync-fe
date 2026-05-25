@@ -1,12 +1,23 @@
 import Image from "next/image";
 import Link from "next/link";
-import { BriefcaseBusiness, Building2, Clock3, MapPin, Search, Sparkles, UsersRound, type LucideIcon } from "lucide-react";
+import {
+  BriefcaseBusiness,
+  Building2,
+  Clock3,
+  FileCheck2,
+  MapPin,
+  Search,
+  Sparkles,
+  UserRoundPlus,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
 
 import { PublicTalentProfileForm } from "@/components/hire/public-talent-profile-form";
 import { Footer } from "@/components/landing/footer";
 import { Header } from "@/components/landing/header";
 import { tryServerApiJson } from "@/lib/api/server";
-import type { PublicHiringMarketplace, PublicMarketplaceJobSummary } from "@/lib/recruitment/types";
+import type { PublicHiringMarketplace, PublicMarketplaceJobSummary, PublicTalentProfilePreview } from "@/lib/recruitment/types";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +80,16 @@ export default async function HirePage({ searchParams }: HirePageProps) {
                 </label>
                 <button className="h-12 rounded-md bg-[#2b1ab8] px-6 text-sm font-black text-white">Search jobs</button>
               </form>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link href="/hire/signup" className="inline-flex h-11 items-center gap-2 rounded-md bg-white px-4 text-sm font-black text-[#1f128a]">
+                  <UserRoundPlus size={16} />
+                  Create candidate profile
+                </Link>
+                <Link href="/careers/acme-health" className="inline-flex h-11 items-center gap-2 rounded-md border border-white/25 bg-white/12 px-4 text-sm font-black text-white">
+                  <BriefcaseBusiness size={16} />
+                  Acme careers
+                </Link>
+              </div>
             </div>
           </div>
         </section>
@@ -110,6 +131,20 @@ export default async function HirePage({ searchParams }: HirePageProps) {
                 </article>
               ))}
             </section>
+
+            <div className="overflow-hidden rounded-lg border border-[#dfe8f6] bg-white shadow-[0_18px_45px_rgba(18,31,67,0.05)]">
+              <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#edf1f7] p-5">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-[#63708a]">Candidate marketplace</p>
+                  <h2 className="mt-1 text-2xl font-black text-[#11143a]">Discoverable public talent profiles</h2>
+                </div>
+                <Link href="/hire/signup" className="inline-flex h-10 items-center gap-2 rounded-md bg-[#2b1ab8] px-4 text-sm font-black text-white">
+                  <UserRoundPlus size={16} />
+                  Candidate signup
+                </Link>
+              </div>
+              <TalentTable profiles={marketplace.talentProfiles} />
+            </div>
           </div>
 
           <aside className="space-y-5">
@@ -198,6 +233,81 @@ function JobTable({ jobs }: { jobs: PublicMarketplaceJobSummary[] }) {
   );
 }
 
+function TalentTable({ profiles }: { profiles: PublicTalentProfilePreview[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-[980px] w-full text-left">
+        <thead className="bg-[#fbfcff] text-xs font-black uppercase tracking-[0.06em] text-[#63708a]">
+          <tr>
+            <th className="px-5 py-3">Candidate</th>
+            <th className="px-5 py-3">Target role</th>
+            <th className="px-5 py-3">Work</th>
+            <th className="px-5 py-3">Skills</th>
+            <th className="px-5 py-3">Profile</th>
+            <th className="px-5 py-3">Updated</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#edf1f7]">
+          {profiles.map((profile) => (
+            <tr key={profile.id} className="align-top transition hover:bg-[#fbfcff]">
+              <td className="px-5 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#f1edff] text-sm font-black text-[#3820d7]">
+                    {profile.displayName.slice(0, 1)}
+                  </span>
+                  <div>
+                    <p className="font-black text-[#11143a]">{profile.displayName}</p>
+                    <p className="mt-1 max-w-md text-sm font-semibold leading-6 text-[#65708a]">
+                      {profile.summary ?? profile.headline ?? "Open to conversations"}
+                    </p>
+                  </div>
+                </div>
+              </td>
+              <td className="px-5 py-4">
+                <p className="font-black text-[#11143a]">{profile.desiredTitle ?? "Open role"}</p>
+                <p className="mt-1 text-xs font-bold text-[#74809a]">{profile.locationName ?? "Flexible"}</p>
+              </td>
+              <td className="px-5 py-4">
+                <div className="flex flex-wrap gap-2">
+                  {profile.workModes.slice(0, 2).map((mode) => <Chip key={mode} icon={Building2} label={humanize(mode)} />)}
+                  {profile.employmentTypes.slice(0, 2).map((type) => <Chip key={type} icon={Clock3} label={humanize(type)} />)}
+                </div>
+              </td>
+              <td className="px-5 py-4">
+                <div className="flex max-w-xs flex-wrap gap-1">
+                  {profile.skills.slice(0, 5).map((skill) => (
+                    <span key={skill} className="rounded-full bg-[#f6f8fc] px-2 py-1 text-[11px] font-black text-[#63708a]">{skill}</span>
+                  ))}
+                  {!profile.skills.length ? <span className="text-sm font-bold text-[#74809a]">Open skill set</span> : null}
+                </div>
+              </td>
+              <td className="px-5 py-4">
+                <div className="flex flex-wrap gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs font-black text-emerald-700">
+                    <FileCheck2 size={13} />
+                    {profile.resumeUploaded ? "Resume" : "Builder"}
+                  </span>
+                  <span className="rounded-md border border-[#dfe8f6] bg-[#fbfcff] px-2 py-1 text-xs font-black text-[#4c5872]">
+                    {profile.profileStrength}/6
+                  </span>
+                </div>
+              </td>
+              <td className="px-5 py-4 text-sm font-bold text-[#4c5872]">{formatDate(profile.updatedAt)}</td>
+            </tr>
+          ))}
+          {!profiles.length ? (
+            <tr>
+              <td className="px-5 py-10 text-sm font-bold text-[#65708a]" colSpan={6}>
+                No public candidates have created profiles yet.
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Metric({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: number; tone: "blue" | "green" | "violet" }) {
   const tones = {
     blue: "border-sky-100 bg-sky-50 text-sky-700",
@@ -227,6 +337,10 @@ function Chip({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
 
 function humanize(value?: string | null) {
   return value ? value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Flexible";
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
 function readParam(value: string | string[] | undefined) {

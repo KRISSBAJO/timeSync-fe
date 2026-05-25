@@ -23,6 +23,7 @@ const navigation = [
   { label: "Platform", href: "#product" },
   { label: "Solutions", href: "#solutions" },
   { label: "Time & Ops", href: "#features" },
+  { label: "Hire", href: "/hire" },
   { label: "HR Guides", href: "/hr-guides" },
 ];
 

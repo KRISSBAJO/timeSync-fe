@@ -5,6 +5,7 @@ import { CheckCircle2, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/api/client";
+import { readResumeUpload, resumeFileFromForm } from "@/lib/recruitment/resume-upload";
 import type { PublicTalentProfileResponse, RecruitmentEmploymentType, RecruitmentWorkMode } from "@/lib/recruitment/types";
 
 const workModes: Array<{ value: RecruitmentWorkMode; label: string }> = [
@@ -32,6 +33,7 @@ export function PublicTalentProfileForm() {
     setPending(true);
 
     try {
+      const resumeFile = await readResumeUpload(resumeFileFromForm(form));
       const response = await apiFetch<PublicTalentProfileResponse>("/hiring/talent-profiles", {
         method: "POST",
         body: JSON.stringify({
@@ -43,7 +45,7 @@ export function PublicTalentProfileForm() {
           currentTitle: form.get("currentTitle"),
           currentEmployer: form.get("currentEmployer"),
           locationName: form.get("locationName"),
-          resumeUrl: form.get("resumeUrl"),
+          resumeFile,
           portfolioUrl: form.get("portfolioUrl"),
           availabilityNote: form.get("availabilityNote"),
           preferredTenantSlug: form.get("preferredTenantSlug"),
@@ -55,7 +57,13 @@ export function PublicTalentProfileForm() {
             .filter(Boolean),
           source: "Public hiring marketplace",
           consentAccepted: form.get("consentAccepted") === "on",
-          metadata: { source: "hire_page" },
+          metadata: {
+            source: "hire_page",
+            profileBuilder: {
+              headline: form.get("desiredTitle"),
+              professionalSummary: form.get("availabilityNote"),
+            },
+          },
         }),
         retryOnUnauthorized: false,
       });
@@ -110,7 +118,7 @@ export function PublicTalentProfileForm() {
         <Field label="Current title"><input name="currentTitle" className="form-field" /></Field>
         <Field label="Current employer"><input name="currentEmployer" className="form-field" /></Field>
         <Field label="Location"><input name="locationName" className="form-field" placeholder="Chicago, IL" /></Field>
-        <Field label="Resume link"><input name="resumeUrl" type="url" className="form-field" placeholder="https://..." /></Field>
+        <Field label="Resume upload"><input name="resumeFile" type="file" accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" required className="form-field file:mr-3 file:rounded-md file:border-0 file:bg-[#eef2ff] file:px-3 file:py-2 file:text-xs file:font-black file:text-[#3820d7]" /></Field>
         <Field label="Portfolio link"><input name="portfolioUrl" type="url" className="form-field" placeholder="https://..." /></Field>
         <Field label="Preferred company slug"><input name="preferredTenantSlug" className="form-field" placeholder="acme-health" /></Field>
         <Field label="Availability"><input name="availabilityNote" className="form-field" placeholder="Two weeks notice" /></Field>

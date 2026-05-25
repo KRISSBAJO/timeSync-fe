@@ -374,6 +374,10 @@ export type PublicTalentProfilePreview = {
   skills: string[];
   workModes: RecruitmentWorkMode[];
   employmentTypes: RecruitmentEmploymentType[];
+  headline?: string | null;
+  summary?: string | null;
+  resumeUploaded: boolean;
+  profileStrength: number;
   updatedAt: string;
 };
 

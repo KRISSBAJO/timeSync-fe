@@ -5,6 +5,7 @@ import { CheckCircle2, FileText, Loader2, SendHorizonal } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/api/client";
+import { readResumeUpload, resumeFileFromForm } from "@/lib/recruitment/resume-upload";
 import type { PublicApplicationResponse, PublicJobDetail, PublicQuestion } from "@/lib/recruitment/types";
 
 type PublicJobApplicationFormProps = {
@@ -24,6 +25,7 @@ export function PublicJobApplicationForm({ tenantSlug, job }: PublicJobApplicati
     setPending(true);
 
     try {
+      const resumeFile = await readResumeUpload(resumeFileFromForm(form));
       const response = await apiFetch<PublicApplicationResponse>(`/careers/${tenantSlug}/jobs/${job.slug}/apply`, {
         method: "POST",
         body: JSON.stringify({
@@ -34,7 +36,7 @@ export function PublicJobApplicationForm({ tenantSlug, job }: PublicJobApplicati
           currentEmployer: form.get("currentEmployer"),
           currentTitle: form.get("currentTitle"),
           locationName: form.get("locationName"),
-          resumeUrl: form.get("resumeUrl"),
+          resumeFile,
           source: form.get("source"),
           availabilityNote: form.get("availabilityNote"),
           consentAccepted: form.get("consentAccepted") === "on",
@@ -94,7 +96,7 @@ export function PublicJobApplicationForm({ tenantSlug, job }: PublicJobApplicati
         <FormField label="Current employer"><input name="currentEmployer" className="form-field" /></FormField>
         <FormField label="Current title"><input name="currentTitle" className="form-field" /></FormField>
         <FormField label="Location"><input name="locationName" className="form-field" placeholder="City, state, country" /></FormField>
-        <FormField label="Resume link"><input name="resumeUrl" type="url" className="form-field" placeholder="https://..." /></FormField>
+        <FormField label="Resume upload"><input name="resumeFile" type="file" accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" required className="form-field file:mr-3 file:rounded-md file:border-0 file:bg-[#eef2ff] file:px-3 file:py-2 file:text-xs file:font-black file:text-[#3820d7]" /></FormField>
         <FormField label="Source"><input name="source" className="form-field" placeholder="LinkedIn, referral, job board" /></FormField>
         <FormField label="Availability"><input name="availabilityNote" className="form-field" placeholder="Earliest start date or scheduling note" /></FormField>
       </div>
