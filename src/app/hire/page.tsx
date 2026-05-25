@@ -72,7 +72,7 @@ export default async function HirePage({ searchParams }: HirePageProps) {
                   </Link>
                   <Link href="/careers/acme-health" className="inline-flex h-10 items-center gap-2 rounded-md border border-white/25 bg-white/10 px-3 text-sm font-black text-white">
                     <BriefcaseBusiness size={16} />
-                    Acme jobs
+                    Sample jobs
                   </Link>
                 </div>
               </div>
@@ -104,7 +104,7 @@ export default async function HirePage({ searchParams }: HirePageProps) {
                   <h2 className="mt-1 text-2xl font-black text-[#11143a]">Public openings from tenant career boards</h2>
                 </div>
                 <Link href="/careers/acme-health" className="inline-flex h-10 items-center rounded-md border border-[#dfe8f6] px-4 text-sm font-black text-[#3820d7]">
-                  View Acme board
+                  View sample board
                 </Link>
               </div>
               <JobTable jobs={marketplace.data} />
