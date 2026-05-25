@@ -84,6 +84,7 @@ export type RecruitmentRequisition = {
   recruiter?: ScheduleEmployee | null;
   approvalRequest?: RecruitmentApprovalRequest | null;
   stages?: RecruitmentPipelineStage[];
+  applications?: RecruitmentApplication[];
   _count?: { applications: number };
 };
 
@@ -145,6 +146,7 @@ export type RecruitmentInterviewFeedback = {
   interviewId: string;
   applicationId: string;
   reviewerUserId?: string | null;
+  reviewer?: Pick<AuthUser, "id" | "email" | "username"> | null;
   rating?: number | null;
   recommendation: RecruitmentFeedbackRecommendation;
   strengths?: string | null;
@@ -236,4 +238,36 @@ export type RecruitmentPageFilters = {
   applicationId?: string;
   from?: string;
   to?: string;
+};
+
+export type RecruitmentHistoryActor = Pick<AuthUser, "id" | "email" | "username"> | null;
+
+export type RecruitmentTimelineEvent = {
+  id: string;
+  type: string;
+  title: string;
+  description?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  data?: Record<string, unknown> | null;
+  actor?: RecruitmentHistoryActor;
+  createdAt: string;
+};
+
+export type RecruitmentAuditEvent = {
+  id: string;
+  action: string;
+  module: string;
+  entityType: string;
+  entityId?: string | null;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  actor?: RecruitmentHistoryActor;
+  createdAt: string;
+};
+
+export type RecruitmentDetailResponse<T> = {
+  record: T;
+  timeline: RecruitmentTimelineEvent[];
+  audit: RecruitmentAuditEvent[];
 };

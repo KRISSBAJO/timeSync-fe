@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
@@ -31,14 +31,20 @@ import { hasAnyPermission } from "@/lib/auth/permissions";
 import type {
   PaginatedRecruitment,
   RecruitmentApplication,
+  RecruitmentApplicationStatus,
   RecruitmentApprovalRule,
+  RecruitmentAuditEvent,
   RecruitmentCandidate,
+  RecruitmentDetailResponse,
   RecruitmentInterview,
+  RecruitmentInterviewFeedback,
   RecruitmentOffer,
   RecruitmentPageFilters,
   RecruitmentReports,
   RecruitmentRequisition,
   RecruitmentSummary,
+  RecruitmentStageType,
+  RecruitmentTimelineEvent,
 } from "@/lib/recruitment/types";
 import type { ScheduleEmployee } from "@/lib/scheduling/types";
 
@@ -59,6 +65,15 @@ type RecruitmentCommandCenterProps = {
   initialTab: RecruitmentTab;
 };
 
+type DetailEntity = "requisition" | "candidate" | "application" | "interview" | "offer";
+type DetailRecord = RecruitmentRequisition | RecruitmentCandidate | RecruitmentApplication | RecruitmentInterview | RecruitmentOffer;
+type DetailState = {
+  key: string;
+  loading: boolean;
+  data?: RecruitmentDetailResponse<DetailRecord>;
+  error?: string;
+};
+
 type ModalState =
   | { type: "requisition" }
   | { type: "candidate" }
@@ -66,8 +81,32 @@ type ModalState =
   | { type: "interview" }
   | { type: "offer" }
   | { type: "decision"; title: string; endpoint: string; success: string; tone: "approve" | "reject" | "submit" }
-  | { type: "detail"; title: string; body: ReactNode }
+  | {
+      type: "move";
+      application: RecruitmentApplication;
+      stageType: RecruitmentStageType;
+      status?: RecruitmentApplicationStatus;
+      title: string;
+      tone: "advance" | "reject" | "hire" | "withdraw";
+    }
+  | { type: "feedback"; interview: RecruitmentInterview }
+  | { type: "detail"; entity: DetailEntity; title: string; id: string; fallback: DetailRecord }
   | null;
+
+const pipelineStageFlow: Array<{
+  type: RecruitmentStageType;
+  label: string;
+  description: string;
+  terminal?: boolean;
+}> = [
+  { type: "APPLIED", label: "Applied", description: "New applicants" },
+  { type: "SCREENING", label: "Screening", description: "Recruiter review" },
+  { type: "INTERVIEW", label: "Interview", description: "Panels and feedback" },
+  { type: "OFFER", label: "Offer", description: "Comp and approvals" },
+  { type: "HIRED", label: "Hired", description: "Accepted offers", terminal: true },
+  { type: "REJECTED", label: "Rejected", description: "Not moving forward", terminal: true },
+  { type: "WITHDRAWN", label: "Withdrawn", description: "Candidate withdrew", terminal: true },
+];
 
 const tabs: Array<{
   key: RecruitmentTab;
@@ -103,6 +142,7 @@ export function RecruitmentCommandCenter({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<RecruitmentTab>(initialTab);
   const [modal, setModal] = useState<ModalState>(null);
+  const [detailState, setDetailState] = useState<DetailState | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const permissions = summary?.permissions ?? {
@@ -122,8 +162,45 @@ export function RecruitmentCommandCenter({
   const offerRows = offers?.data ?? [];
   const openRequisitionRows = requisitionRows.filter((row) => row.status === "OPEN" || row.status === "APPROVED");
 
+  useEffect(() => {
+    if (modal?.type !== "detail") return;
+
+    const key = detailKey(modal.entity, modal.id);
+    let cancelled = false;
+
+    apiFetch<RecruitmentDetailResponse<DetailRecord>>(detailEndpoint(modal.entity, modal.id))
+      .then((data) => {
+        if (!cancelled) setDetailState({ key, loading: false, data });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setDetailState({
+            key,
+            loading: false,
+            error: error instanceof Error ? error.message : "Could not load recruitment detail.",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modal]);
+
   function refresh() {
     startTransition(() => router.refresh());
+  }
+
+  function openDetail(entity: DetailEntity, row: DetailRecord) {
+    const key = detailKey(entity, row.id);
+    setDetailState({ key, loading: true });
+    setModal({
+      type: "detail",
+      entity,
+      id: row.id,
+      title: detailTitle(entity, row),
+      fallback: row,
+    });
   }
 
   function changeTab(tab: RecruitmentTab) {
@@ -145,6 +222,42 @@ export function RecruitmentCommandCenter({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Recruitment action failed.");
     }
+  }
+
+  async function handleMoveApplication(event: FormEvent<HTMLFormElement>, move: Extract<ModalState, { type: "move" }>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction(
+      `/recruitment/applications/${move.application.id}/move`,
+      cleanPayload({
+        stageType: move.stageType,
+        status: move.status,
+        score: numberValue(form.get("score")),
+        decisionReason: form.get("decisionReason"),
+        metadata: {
+          source: "recruitment.command_center",
+          action: move.tone,
+        },
+      }),
+      `${candidateName(move.application.candidate)} moved to ${humanize(move.status ?? move.stageType)}.`,
+    );
+  }
+
+  async function handleSubmitFeedback(event: FormEvent<HTMLFormElement>, feedback: Extract<ModalState, { type: "feedback" }>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction(
+      "/recruitment/interviews/feedback",
+      cleanPayload({
+        interviewId: feedback.interview.id,
+        rating: numberValue(form.get("rating")),
+        recommendation: form.get("recommendation"),
+        strengths: form.get("strengths"),
+        concerns: form.get("concerns"),
+        notes: form.get("notes"),
+      }),
+      "Interview feedback submitted.",
+    );
   }
 
   async function handleCreateRequisition(event: FormEvent<HTMLFormElement>) {
@@ -353,18 +466,24 @@ export function RecruitmentCommandCenter({
                 onScheduleInterview={() => setModal({ type: "interview" })}
                 onCreateOffer={() => setModal({ type: "offer" })}
               />
-              <RequisitionTable rows={requisitionRows} permissions={permissions} setModal={setModal} quickAction={quickAction} />
-              <PipelineTable rows={applicationRows.slice(0, 8)} setModal={setModal} />
+              <RequisitionTable rows={requisitionRows} permissions={permissions} setModal={setModal} quickAction={quickAction} openDetail={openDetail} />
+              <PipelineBoard rows={applicationRows} permissions={permissions} setModal={setModal} openDetail={openDetail} />
+              <PipelineTable rows={applicationRows.slice(0, 8)} permissions={permissions} setModal={setModal} openDetail={openDetail} />
             </>
           ) : null}
 
           {currentTab === "requisitions" ? (
-            <RequisitionTable rows={requisitionRows} permissions={permissions} setModal={setModal} quickAction={quickAction} />
+            <RequisitionTable rows={requisitionRows} permissions={permissions} setModal={setModal} quickAction={quickAction} openDetail={openDetail} />
           ) : null}
-          {currentTab === "candidates" ? <CandidateTable rows={candidateRows} setModal={setModal} /> : null}
-          {currentTab === "pipeline" ? <PipelineTable rows={applicationRows} setModal={setModal} /> : null}
-          {currentTab === "interviews" ? <InterviewTable rows={interviewRows} setModal={setModal} /> : null}
-          {currentTab === "offers" ? <OfferTable rows={offerRows} permissions={permissions} setModal={setModal} /> : null}
+          {currentTab === "candidates" ? <CandidateTable rows={candidateRows} openDetail={openDetail} /> : null}
+          {currentTab === "pipeline" ? (
+            <>
+              <PipelineBoard rows={applicationRows} permissions={permissions} setModal={setModal} openDetail={openDetail} />
+              <PipelineTable rows={applicationRows} permissions={permissions} setModal={setModal} openDetail={openDetail} />
+            </>
+          ) : null}
+          {currentTab === "interviews" ? <InterviewTable rows={interviewRows} permissions={permissions} setModal={setModal} openDetail={openDetail} /> : null}
+          {currentTab === "offers" ? <OfferTable rows={offerRows} permissions={permissions} setModal={setModal} openDetail={openDetail} /> : null}
           {currentTab === "reports" ? <ReportsView reports={reports} /> : null}
           {currentTab === "settings" ? <ApprovalRulesTable rows={approvalRules} /> : null}
         </div>
@@ -379,7 +498,17 @@ export function RecruitmentCommandCenter({
               {modal.type === "interview" ? <InterviewForm applications={applicationRows} onSubmit={handleScheduleInterview} pending={isPending} /> : null}
               {modal.type === "offer" ? <OfferForm applications={applicationRows.filter((row) => row.status === "OFFER" || row.status === "INTERVIEW")} onSubmit={handleCreateOffer} pending={isPending} /> : null}
               {modal.type === "decision" ? <DecisionForm decision={modal} onSubmit={(event) => handleDecision(event, modal)} pending={isPending} /> : null}
-              {modal.type === "detail" ? <DetailPanel title={modal.title}>{modal.body}</DetailPanel> : null}
+              {modal.type === "move" ? <MoveApplicationForm move={modal} onSubmit={(event) => handleMoveApplication(event, modal)} pending={isPending} /> : null}
+              {modal.type === "feedback" ? <FeedbackForm feedback={modal} onSubmit={(event) => handleSubmitFeedback(event, modal)} pending={isPending} /> : null}
+              {modal.type === "detail" ? (
+                <DetailPanel
+                  modal={modal}
+                  detailState={detailState}
+                  permissions={permissions}
+                  setModal={setModal}
+                  postAction={postAction}
+                />
+              ) : null}
             </ModalFrame>,
             document.body,
           )
@@ -419,11 +548,13 @@ function RequisitionTable({
   permissions,
   setModal,
   quickAction,
+  openDetail,
 }: {
   rows: RecruitmentRequisition[];
   permissions: RecruitmentSummary["permissions"];
   setModal: (modal: ModalState) => void;
   quickAction: (endpoint: string, success: string) => void;
+  openDetail: (entity: DetailEntity, row: DetailRecord) => void;
 }) {
   const columns: Array<DataTableColumn<RecruitmentRequisition>> = [
     {
@@ -470,7 +601,7 @@ function RequisitionTable({
       rows={rows}
       columns={columns}
       getRowKey={(row) => row.id}
-      onRowClick={(row) => setModal({ type: "detail", title: row.title, body: <RequisitionDetail row={row} /> })}
+      onRowClick={(row) => openDetail("requisition", row)}
       minWidth="1120px"
       emptyTitle="No requisitions"
       emptyBody="Create a requisition to start a governed hiring workflow."
@@ -478,7 +609,7 @@ function RequisitionTable({
   );
 }
 
-function CandidateTable({ rows, setModal }: { rows: RecruitmentCandidate[]; setModal: (modal: ModalState) => void }) {
+function CandidateTable({ rows, openDetail }: { rows: RecruitmentCandidate[]; openDetail: (entity: DetailEntity, row: DetailRecord) => void }) {
   const columns: Array<DataTableColumn<RecruitmentCandidate>> = [
     { key: "name", header: "Candidate", render: (row) => <strong>{candidateName(row)}</strong> },
     { key: "email", header: "Email", render: (row) => row.email },
@@ -495,7 +626,7 @@ function CandidateTable({ rows, setModal }: { rows: RecruitmentCandidate[]; setM
       rows={rows}
       columns={columns}
       getRowKey={(row) => row.id}
-      onRowClick={(row) => setModal({ type: "detail", title: candidateName(row), body: <CandidateDetail row={row} /> })}
+      onRowClick={(row) => openDetail("candidate", row)}
       minWidth="920px"
       emptyTitle="No candidates"
       emptyBody="Candidates created by HR or imported from sources will appear here."
@@ -503,7 +634,88 @@ function CandidateTable({ rows, setModal }: { rows: RecruitmentCandidate[]; setM
   );
 }
 
-function PipelineTable({ rows, setModal }: { rows: RecruitmentApplication[]; setModal: (modal: ModalState) => void }) {
+function PipelineBoard({
+  rows,
+  permissions,
+  setModal,
+  openDetail,
+}: {
+  rows: RecruitmentApplication[];
+  permissions: RecruitmentSummary["permissions"];
+  setModal: (modal: ModalState) => void;
+  openDetail: (entity: DetailEntity, row: DetailRecord) => void;
+}) {
+  const grouped = pipelineStageFlow.map((stage) => ({
+    ...stage,
+    rows: rows.filter((row) => applicationStageType(row) === stage.type),
+  }));
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[#dfe8f6] bg-white shadow-[0_20px_55px_rgba(18,31,67,0.06)]">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#edf1f7] bg-[linear-gradient(135deg,#ffffff,#f8fbff)] px-5 py-4">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#63708a]">ATS board</p>
+          <h3 className="mt-1 text-xl font-black text-[#11143a]">Candidate pipeline</h3>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[#63708a]">
+            Move applications by stage, capture decisions, and keep the detailed table below for audit-friendly scanning.
+          </p>
+        </div>
+        <StatusBadge status={`${rows.length} active records`} />
+      </div>
+      <div className="grid gap-3 overflow-x-auto p-4 xl:grid-cols-7">
+        {grouped.map((stage) => (
+          <div key={stage.type} className="min-w-[230px] rounded-2xl border border-[#dfe8f6] bg-[#fbfcff]">
+            <div className="border-b border-[#edf1f7] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-black text-[#11143a]">{stage.label}</p>
+                <span className="rounded-full bg-white px-2 py-1 text-xs font-black text-[#63708a]">{stage.rows.length}</span>
+              </div>
+              <p className="mt-1 text-xs font-bold text-[#74809a]">{stage.description}</p>
+            </div>
+            <div className="space-y-2 p-2">
+              {stage.rows.length ? (
+                stage.rows.map((application) => (
+                  <div
+                    key={application.id}
+                    className="w-full rounded-xl border border-[#e5ebf5] bg-white p-3 text-left shadow-[0_10px_24px_rgba(18,31,67,0.04)] transition hover:border-[#4b22e8]"
+                  >
+                    <button type="button" onClick={() => openDetail("application", application)} className="block w-full text-left">
+                      <p className="truncate text-sm font-black text-[#11143a]">{candidateName(application.candidate)}</p>
+                      <p className="mt-1 text-xs font-bold leading-5 text-[#63708a]">{application.requisition?.title ?? "Requisition"}</p>
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <StatusBadge status={application.status} />
+                        <span className="text-xs font-black text-[#74809a]">{application.score ? `${application.score}%` : "No score"}</span>
+                      </div>
+                    </button>
+                    <div className="mt-3 flex flex-wrap gap-1">
+                      <ApplicationActionButtons application={application} permissions={permissions} setModal={setModal} compact />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed border-[#dfe8f6] bg-white p-4 text-center text-xs font-bold leading-5 text-[#74809a]">
+                  No candidates in {stage.label.toLowerCase()}.
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PipelineTable({
+  rows,
+  permissions,
+  setModal,
+  openDetail,
+}: {
+  rows: RecruitmentApplication[];
+  permissions: RecruitmentSummary["permissions"];
+  setModal: (modal: ModalState) => void;
+  openDetail: (entity: DetailEntity, row: DetailRecord) => void;
+}) {
   const columns: Array<DataTableColumn<RecruitmentApplication>> = [
     { key: "candidate", header: "Candidate", render: (row) => <strong>{candidateName(row.candidate)}</strong> },
     { key: "req", header: "Requisition", render: (row) => row.requisition?.title ?? "Requisition" },
@@ -512,6 +724,11 @@ function PipelineTable({ rows, setModal }: { rows: RecruitmentApplication[]; set
     { key: "score", header: "Score", render: (row) => row.score ?? "-" },
     { key: "applied", header: "Applied", render: (row) => formatDate(row.appliedAt) },
     { key: "activity", header: "Last activity", render: (row) => formatDate(row.lastActivityAt) },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (row) => <ApplicationActionButtons application={row} permissions={permissions} setModal={setModal} />,
+    },
   ];
   return (
     <DataTable
@@ -521,7 +738,7 @@ function PipelineTable({ rows, setModal }: { rows: RecruitmentApplication[]; set
       rows={rows}
       columns={columns}
       getRowKey={(row) => row.id}
-      onRowClick={(row) => setModal({ type: "detail", title: candidateName(row.candidate), body: <ApplicationDetail row={row} /> })}
+      onRowClick={(row) => openDetail("application", row)}
       minWidth="980px"
       emptyTitle="No applications"
       emptyBody="Attach candidates to open requisitions to populate the pipeline."
@@ -529,7 +746,17 @@ function PipelineTable({ rows, setModal }: { rows: RecruitmentApplication[]; set
   );
 }
 
-function InterviewTable({ rows, setModal }: { rows: RecruitmentInterview[]; setModal: (modal: ModalState) => void }) {
+function InterviewTable({
+  rows,
+  permissions,
+  setModal,
+  openDetail,
+}: {
+  rows: RecruitmentInterview[];
+  permissions: RecruitmentSummary["permissions"];
+  setModal: (modal: ModalState) => void;
+  openDetail: (entity: DetailEntity, row: DetailRecord) => void;
+}) {
   const columns: Array<DataTableColumn<RecruitmentInterview>> = [
     { key: "candidate", header: "Candidate", render: (row) => <strong>{candidateName(row.application?.candidate)}</strong> },
     { key: "req", header: "Requisition", render: (row) => row.application?.requisition?.title ?? "Requisition" },
@@ -537,6 +764,11 @@ function InterviewTable({ rows, setModal }: { rows: RecruitmentInterview[]; setM
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
     { key: "where", header: "Location", render: (row) => row.locationName ?? row.meetingUrl ?? "Not set" },
     { key: "feedback", header: "Feedback", render: (row) => row.feedback?.length ?? 0 },
+    {
+      key: "actions",
+      header: "Actions",
+      render: (row) => (permissions.submitInterviewFeedback ? <TinyButton label="Scorecard" onClick={() => setModal({ type: "feedback", interview: row })} /> : null),
+    },
   ];
   return (
     <DataTable
@@ -546,7 +778,7 @@ function InterviewTable({ rows, setModal }: { rows: RecruitmentInterview[]; setM
       rows={rows}
       columns={columns}
       getRowKey={(row) => row.id}
-      onRowClick={(row) => setModal({ type: "detail", title: candidateName(row.application?.candidate), body: <InterviewDetail row={row} /> })}
+      onRowClick={(row) => openDetail("interview", row)}
       minWidth="1040px"
       emptyTitle="No interviews"
       emptyBody="Scheduled screens and panels will appear here."
@@ -558,10 +790,12 @@ function OfferTable({
   rows,
   permissions,
   setModal,
+  openDetail,
 }: {
   rows: RecruitmentOffer[];
   permissions: RecruitmentSummary["permissions"];
   setModal: (modal: ModalState) => void;
+  openDetail: (entity: DetailEntity, row: DetailRecord) => void;
 }) {
   const columns: Array<DataTableColumn<RecruitmentOffer>> = [
     { key: "candidate", header: "Candidate", render: (row) => <strong>{candidateName(row.application?.candidate)}</strong> },
@@ -584,6 +818,7 @@ function OfferTable({
               <TinyButton label="Reject" tone="red" onClick={() => setModal({ type: "decision", title: "Reject offer", endpoint: `/recruitment/offers/${row.id}/reject`, success: "Offer rejected.", tone: "reject" })} />
             </>
           ) : null}
+          <OfferLifecycleButtons row={row} permissions={permissions} setModal={setModal} />
         </div>
       ),
     },
@@ -596,11 +831,111 @@ function OfferTable({
       rows={rows}
       columns={columns}
       getRowKey={(row) => row.id}
-      onRowClick={(row) => setModal({ type: "detail", title: `Offer for ${candidateName(row.application?.candidate)}`, body: <OfferDetail row={row} /> })}
+      onRowClick={(row) => openDetail("offer", row)}
       minWidth="1040px"
       emptyTitle="No offers"
       emptyBody="Drafted and submitted offers will appear here."
     />
+  );
+}
+
+function ApplicationActionButtons({
+  application,
+  permissions,
+  setModal,
+  compact = false,
+}: {
+  application: RecruitmentApplication;
+  permissions: RecruitmentSummary["permissions"];
+  setModal: (modal: ModalState) => void;
+  compact?: boolean;
+}) {
+  if (!permissions.manageRecruitment || isApplicationTerminal(application.status)) {
+    return null;
+  }
+
+  const nextStage = nextApplicationStage(application);
+  const labelPrefix = compact ? "" : "Move ";
+
+  return (
+    <>
+      {nextStage ? (
+        <TinyButton
+          label={`${labelPrefix}${humanize(nextStage)}`}
+          onClick={() => setModal({
+            type: "move",
+            application,
+            stageType: nextStage,
+            title: `Move ${candidateName(application.candidate)} to ${humanize(nextStage)}`,
+            tone: "advance",
+          })}
+        />
+      ) : null}
+      <TinyButton
+        label="Reject"
+        tone="red"
+        onClick={() => setModal({
+          type: "move",
+          application,
+          stageType: "REJECTED",
+          status: "REJECTED",
+          title: `Reject ${candidateName(application.candidate)}`,
+          tone: "reject",
+        })}
+      />
+      <TinyButton
+        label="Withdraw"
+        onClick={() => setModal({
+          type: "move",
+          application,
+          stageType: "WITHDRAWN",
+          status: "WITHDRAWN",
+          title: `Withdraw ${candidateName(application.candidate)}`,
+          tone: "withdraw",
+        })}
+      />
+      <TinyButton
+        label="Hire"
+        tone="green"
+        onClick={() => setModal({
+          type: "move",
+          application,
+          stageType: "HIRED",
+          status: "HIRED",
+          title: `Mark ${candidateName(application.candidate)} hired`,
+          tone: "hire",
+        })}
+      />
+    </>
+  );
+}
+
+function OfferLifecycleButtons({
+  row,
+  permissions,
+  setModal,
+}: {
+  row: RecruitmentOffer;
+  permissions: RecruitmentSummary["permissions"];
+  setModal: (modal: ModalState) => void;
+}) {
+  if (!permissions.manageOffers) return null;
+
+  return (
+    <>
+      {row.status === "APPROVED" ? (
+        <TinyButton label="Extend" onClick={() => setModal({ type: "decision", title: "Extend offer", endpoint: `/recruitment/offers/${row.id}/extend`, success: "Offer extended.", tone: "submit" })} />
+      ) : null}
+      {row.status === "APPROVED" || row.status === "EXTENDED" ? (
+        <>
+          <TinyButton label="Accept" tone="green" onClick={() => setModal({ type: "decision", title: "Accept offer", endpoint: `/recruitment/offers/${row.id}/accept`, success: "Offer accepted and candidate marked hired.", tone: "approve" })} />
+          <TinyButton label="Decline" tone="red" onClick={() => setModal({ type: "decision", title: "Decline offer", endpoint: `/recruitment/offers/${row.id}/decline`, success: "Offer declined.", tone: "reject" })} />
+        </>
+      ) : null}
+      {row.status !== "ACCEPTED" && row.status !== "DECLINED" && row.status !== "WITHDRAWN" ? (
+        <TinyButton label="Withdraw" tone="red" onClick={() => setModal({ type: "decision", title: "Withdraw offer", endpoint: `/recruitment/offers/${row.id}/withdraw`, success: "Offer withdrawn.", tone: "reject" })} />
+      ) : null}
+    </>
   );
 }
 
@@ -813,14 +1148,183 @@ function DecisionForm({ decision, onSubmit, pending }: { decision: Extract<Modal
   );
 }
 
-function DetailPanel({ title, children }: { title: string; children: ReactNode }) {
+function MoveApplicationForm({ move, onSubmit, pending }: { move: Extract<ModalState, { type: "move" }>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; pending: boolean }) {
+  const requiresReason = move.tone === "reject" || move.tone === "withdraw" || move.tone === "hire";
+
+  return (
+    <FormShell title={move.title} eyebrow="Pipeline decision" onSubmit={onSubmit} pending={pending} submitLabel="Save movement">
+      <div className="grid gap-3 md:grid-cols-3">
+        <DetailTile label="Candidate" value={candidateName(move.application.candidate)} />
+        <DetailTile label="Current stage" value={move.application.currentStage?.name ?? humanize(move.application.status)} />
+        <DetailTile label="Target" value={humanize(move.status ?? move.stageType)} />
+      </div>
+      <Field label="Score">
+        <input name="score" type="number" min="0" max="100" className="form-field" defaultValue={move.application.score ?? ""} placeholder="0-100" />
+      </Field>
+      <Field label={requiresReason ? "Decision reason" : "Movement note"}>
+        <textarea
+          name="decisionReason"
+          className="form-field min-h-28"
+          required={requiresReason}
+          placeholder={requiresReason ? "Required for terminal hiring decisions" : "Optional note for audit history"}
+          autoFocus
+        />
+      </Field>
+    </FormShell>
+  );
+}
+
+function FeedbackForm({ feedback, onSubmit, pending }: { feedback: Extract<ModalState, { type: "feedback" }>; onSubmit: (event: FormEvent<HTMLFormElement>) => void; pending: boolean }) {
+  return (
+    <FormShell title={`Scorecard for ${candidateName(feedback.interview.application?.candidate)}`} eyebrow="Interview feedback" onSubmit={onSubmit} pending={pending} submitLabel="Submit feedback">
+      <div className="grid gap-3 md:grid-cols-3">
+        <DetailTile label="Interview" value={formatDateTime(feedback.interview.scheduledStartAt)} />
+        <DetailTile label="Requisition" value={feedback.interview.application?.requisition?.title ?? "Requisition"} />
+        <DetailTile label="Current feedback" value={feedback.interview.feedback?.length ?? 0} />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field label="Rating">
+          <select name="rating" className="form-field" defaultValue="4">
+            <option value="5">5 - exceptional</option>
+            <option value="4">4 - strong</option>
+            <option value="3">3 - mixed</option>
+            <option value="2">2 - weak</option>
+            <option value="1">1 - no hire</option>
+          </select>
+        </Field>
+        <Field label="Recommendation">
+          <select name="recommendation" className="form-field" defaultValue="YES" required>
+            <option value="STRONG_YES">Strong yes</option>
+            <option value="YES">Yes</option>
+            <option value="MIXED">Mixed</option>
+            <option value="NO">No</option>
+            <option value="STRONG_NO">Strong no</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="Strengths"><textarea name="strengths" className="form-field min-h-24" placeholder="Evidence, examples, standout capabilities" /></Field>
+      <Field label="Concerns"><textarea name="concerns" className="form-field min-h-24" placeholder="Risks, gaps, follow-up questions" /></Field>
+      <Field label="Notes"><textarea name="notes" className="form-field min-h-24" placeholder="Panel notes for hiring team" /></Field>
+    </FormShell>
+  );
+}
+
+function DetailPanel({
+  modal,
+  detailState,
+  permissions,
+  setModal,
+  postAction,
+}: {
+  modal: Extract<ModalState, { type: "detail" }>;
+  detailState: DetailState | null;
+  permissions: RecruitmentSummary["permissions"];
+  setModal: (modal: ModalState) => void;
+  postAction: (endpoint: string, body: Record<string, unknown>, success: string) => Promise<void>;
+}) {
+  const key = detailKey(modal.entity, modal.id);
+  const activeDetail = detailState?.key === key ? detailState : null;
+  const record = activeDetail?.data?.record ?? modal.fallback;
+  const timeline = activeDetail?.data?.timeline ?? [];
+  const audit = activeDetail?.data?.audit ?? [];
+
   return (
     <div>
-      <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#63708a]">Details</p>
-      <h2 className="mt-1 text-2xl font-black text-[#11143a]">{title}</h2>
-      <div className="mt-5 space-y-3">{children}</div>
+      <p className="text-[11px] font-black uppercase tracking-[0.12em] text-[#63708a]">Recruitment record</p>
+      <div className="mt-1 flex flex-wrap items-start justify-between gap-3 pr-10">
+        <div>
+          <h2 className="text-2xl font-black text-[#11143a]">{modal.title}</h2>
+          <p className="mt-1 text-sm font-semibold text-[#74809a]">{humanize(modal.entity)} detail, related activity, workflow, and audit evidence.</p>
+        </div>
+        <StatusBadge status={detailStatus(modal.entity, record)} />
+      </div>
+
+      {activeDetail?.loading ? <div className="mt-4 rounded-xl border border-[#dfe8f6] bg-[#fbfcff] p-4 text-sm font-bold text-[#63708a]">Loading full detail and history...</div> : null}
+      {activeDetail?.error ? <div className="mt-4 rounded-xl border border-rose-100 bg-rose-50 p-4 text-sm font-bold text-rose-700">{activeDetail.error}</div> : null}
+
+      <div className="mt-5 space-y-5">
+        <DetailActionBar record={record} entity={modal.entity} permissions={permissions} setModal={setModal} postAction={postAction} />
+        {modal.entity === "requisition" ? <RequisitionDetail row={record as RecruitmentRequisition} /> : null}
+        {modal.entity === "candidate" ? <CandidateDetail row={record as RecruitmentCandidate} /> : null}
+        {modal.entity === "application" ? <ApplicationDetail row={record as RecruitmentApplication} /> : null}
+        {modal.entity === "interview" ? <InterviewDetail row={record as RecruitmentInterview} /> : null}
+        {modal.entity === "offer" ? <OfferDetail row={record as RecruitmentOffer} /> : null}
+        <RelatedRecords entity={modal.entity} record={record} setModal={setModal} />
+        <HistoryPanel timeline={timeline} audit={audit} />
+      </div>
     </div>
   );
+}
+
+function DetailActionBar({
+  record,
+  entity,
+  permissions,
+  setModal,
+  postAction,
+}: {
+  record: DetailRecord;
+  entity: DetailEntity;
+  permissions: RecruitmentSummary["permissions"];
+  setModal: (modal: ModalState) => void;
+  postAction: (endpoint: string, body: Record<string, unknown>, success: string) => Promise<void>;
+}) {
+  if (entity === "requisition") {
+    const row = record as RecruitmentRequisition;
+    return (
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-[#dfe8f6] bg-[#fbfcff] p-3">
+        {permissions.manageRecruitment && (row.status === "DRAFT" || row.status === "REJECTED") ? (
+          <ActionButton icon={ClipboardCheck} label="Submit" onClick={() => setModal({ type: "decision", title: `Submit ${row.code}`, endpoint: `/recruitment/requisitions/${row.id}/submit`, success: "Requisition submitted.", tone: "submit" })} />
+        ) : null}
+        {permissions.approveRecruitment && row.status === "SUBMITTED" ? (
+          <>
+            <ActionButton icon={CheckCircle2} label="Approve" onClick={() => setModal({ type: "decision", title: `Approve ${row.code}`, endpoint: `/recruitment/requisitions/${row.id}/approve`, success: "Requisition approved.", tone: "approve" })} />
+            <ActionButton icon={XCircle} label="Reject" onClick={() => setModal({ type: "decision", title: `Reject ${row.code}`, endpoint: `/recruitment/requisitions/${row.id}/reject`, success: "Requisition rejected.", tone: "reject" })} />
+          </>
+        ) : null}
+        {permissions.manageRecruitment && row.status === "APPROVED" ? (
+          <ActionButton icon={PanelTopOpen} label="Open requisition" onClick={() => void postAction(`/recruitment/requisitions/${row.id}/open`, {}, "Requisition opened.")} />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (entity === "application") {
+    return (
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-[#dfe8f6] bg-[#fbfcff] p-3">
+        <ApplicationActionButtons application={record as RecruitmentApplication} permissions={permissions} setModal={setModal} />
+      </div>
+    );
+  }
+
+  if (entity === "interview") {
+    const row = record as RecruitmentInterview;
+    return permissions.submitInterviewFeedback ? (
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-[#dfe8f6] bg-[#fbfcff] p-3">
+        <ActionButton icon={ClipboardCheck} label="Submit scorecard" onClick={() => setModal({ type: "feedback", interview: row })} />
+      </div>
+    ) : null;
+  }
+
+  if (entity === "offer") {
+    const row = record as RecruitmentOffer;
+    return (
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-[#dfe8f6] bg-[#fbfcff] p-3">
+        {permissions.manageOffers && (row.status === "DRAFT" || row.status === "REJECTED") ? (
+          <ActionButton icon={ClipboardCheck} label="Submit offer" onClick={() => setModal({ type: "decision", title: "Submit offer", endpoint: `/recruitment/offers/${row.id}/submit`, success: "Offer submitted.", tone: "submit" })} />
+        ) : null}
+        {permissions.approveRecruitment && row.status === "SUBMITTED" ? (
+          <>
+            <ActionButton icon={CheckCircle2} label="Approve offer" onClick={() => setModal({ type: "decision", title: "Approve offer", endpoint: `/recruitment/offers/${row.id}/approve`, success: "Offer approved.", tone: "approve" })} />
+            <ActionButton icon={XCircle} label="Reject offer" onClick={() => setModal({ type: "decision", title: "Reject offer", endpoint: `/recruitment/offers/${row.id}/reject`, success: "Offer rejected.", tone: "reject" })} />
+          </>
+        ) : null}
+        <OfferLifecycleButtons row={row} permissions={permissions} setModal={setModal} />
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function RequisitionDetail({ row }: { row: RecruitmentRequisition }) {
@@ -906,15 +1410,202 @@ function OfferDetail({ row }: { row: RecruitmentOffer }) {
   );
 }
 
+function RelatedRecords({ entity, record, setModal }: { entity: DetailEntity; record: DetailRecord; setModal: (modal: ModalState) => void }) {
+  const applications =
+    entity === "requisition"
+      ? (record as RecruitmentRequisition).applications ?? []
+      : entity === "candidate"
+        ? (record as RecruitmentCandidate).applications ?? []
+        : [];
+  const application = entity === "application" ? (record as RecruitmentApplication) : entity === "interview" ? (record as RecruitmentInterview).application : entity === "offer" ? (record as RecruitmentOffer).application : null;
+  const interviews = entity === "application" ? (record as RecruitmentApplication).interviews ?? [] : application?.interviews ?? [];
+  const offers = entity === "application" ? (record as RecruitmentApplication).offers ?? [] : application?.offers ?? [];
+  const feedback = entity === "interview" ? (record as RecruitmentInterview).feedback ?? [] : interviews.flatMap((interview) => interview.feedback ?? []);
+
+  if (!applications.length && !interviews.length && !offers.length && !feedback.length) {
+    return <EmptyPanel title="No related activity yet" body="Applications, interviews, offers, and feedback will appear here as the hiring workflow moves forward." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <SectionHeading title="Related hiring activity" eyebrow="Connected records" />
+      {applications.length ? <RelatedApplications rows={applications} setModal={setModal} /> : null}
+      {interviews.length ? <RelatedInterviews rows={interviews} setModal={setModal} /> : null}
+      {offers.length ? <RelatedOffers rows={offers} setModal={setModal} /> : null}
+      {feedback.length ? <FeedbackList rows={feedback} /> : null}
+    </div>
+  );
+}
+
+function RelatedApplications({ rows, setModal }: { rows: RecruitmentApplication[]; setModal: (modal: ModalState) => void }) {
+  const columns: Array<DataTableColumn<RecruitmentApplication>> = [
+    { key: "candidate", header: "Candidate", render: (row) => <strong>{candidateName(row.candidate)}</strong> },
+    { key: "req", header: "Requisition", render: (row) => row.requisition?.title ?? "Requisition" },
+    { key: "stage", header: "Stage", render: (row) => <StatusBadge status={row.currentStage?.name ?? row.status} /> },
+    { key: "activity", header: "Last activity", render: (row) => formatDate(row.lastActivityAt) },
+  ];
+
+  return (
+    <DataTable
+      title="Applications"
+      rows={rows}
+      columns={columns}
+      getRowKey={(row) => row.id}
+      onRowClick={(row) => setModal({ type: "detail", entity: "application", title: candidateName(row.candidate), id: row.id, fallback: row })}
+      minWidth="760px"
+    />
+  );
+}
+
+function RelatedInterviews({ rows, setModal }: { rows: RecruitmentInterview[]; setModal: (modal: ModalState) => void }) {
+  const columns: Array<DataTableColumn<RecruitmentInterview>> = [
+    { key: "when", header: "When", render: (row) => formatDateTime(row.scheduledStartAt) },
+    { key: "stage", header: "Stage", render: (row) => row.stage?.name ?? row.application?.currentStage?.name ?? "Interview" },
+    { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
+    { key: "feedback", header: "Feedback", render: (row) => row.feedback?.length ?? 0 },
+  ];
+
+  return (
+    <DataTable
+      title="Interviews"
+      rows={rows}
+      columns={columns}
+      getRowKey={(row) => row.id}
+      onRowClick={(row) => setModal({ type: "detail", entity: "interview", title: candidateName(row.application?.candidate), id: row.id, fallback: row })}
+      minWidth="720px"
+    />
+  );
+}
+
+function RelatedOffers({ rows, setModal }: { rows: RecruitmentOffer[]; setModal: (modal: ModalState) => void }) {
+  const columns: Array<DataTableColumn<RecruitmentOffer>> = [
+    { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
+    { key: "pay", header: "Base pay", render: (row) => formatMoney(row.basePayCents, row.currencyCode) },
+    { key: "start", header: "Start", render: (row) => (row.startDate ? formatDate(row.startDate) : "-") },
+    { key: "expires", header: "Expires", render: (row) => (row.expiresAt ? formatDate(row.expiresAt) : "-") },
+  ];
+
+  return (
+    <DataTable
+      title="Offers"
+      rows={rows}
+      columns={columns}
+      getRowKey={(row) => row.id}
+      onRowClick={(row) => setModal({ type: "detail", entity: "offer", title: `Offer for ${candidateName(row.application?.candidate)}`, id: row.id, fallback: row })}
+      minWidth="720px"
+    />
+  );
+}
+
+function FeedbackList({ rows }: { rows: RecruitmentInterviewFeedback[] }) {
+  return (
+    <section className="rounded-2xl border border-[#dfe8f6] bg-white">
+      <div className="border-b border-[#edf1f7] px-5 py-4">
+        <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#63708a]">Scorecards</p>
+        <h3 className="mt-1 text-xl font-black text-[#11143a]">Interview feedback</h3>
+      </div>
+      <div className="grid gap-2 p-4 md:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.id} className="rounded-xl border border-[#dfe8f6] bg-[#fbfcff] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <StatusBadge status={row.recommendation} />
+              <span className="text-sm font-black text-[#11143a]">{row.rating ? `${row.rating}/5` : "No rating"}</span>
+            </div>
+            <p className="mt-3 text-xs font-black uppercase tracking-[0.08em] text-[#63708a]">Strengths</p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-[#11143a]">{row.strengths ?? "Not captured"}</p>
+            <p className="mt-3 text-xs font-black uppercase tracking-[0.08em] text-[#63708a]">Concerns</p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-[#11143a]">{row.concerns ?? "Not captured"}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HistoryPanel({ timeline, audit }: { timeline: RecruitmentTimelineEvent[]; audit: RecruitmentAuditEvent[] }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <section className="rounded-2xl border border-[#dfe8f6] bg-white">
+        <div className="border-b border-[#edf1f7] px-5 py-4">
+          <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#63708a]">Timeline</p>
+          <h3 className="mt-1 text-xl font-black text-[#11143a]">Activity trail</h3>
+        </div>
+        <EventList
+          empty="No timeline events have been written yet."
+          rows={timeline.map((event) => ({
+            id: event.id,
+            title: event.title,
+            body: event.description ?? humanize(event.type),
+            actor: event.actor?.email ?? event.actor?.username ?? "System",
+            createdAt: event.createdAt,
+          }))}
+        />
+      </section>
+      <section className="rounded-2xl border border-[#dfe8f6] bg-white">
+        <div className="border-b border-[#edf1f7] px-5 py-4">
+          <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#63708a]">Audit</p>
+          <h3 className="mt-1 text-xl font-black text-[#11143a]">Governance evidence</h3>
+        </div>
+        <EventList
+          empty="No audit records have been written yet."
+          rows={audit.map((event) => ({
+            id: event.id,
+            title: `${humanize(event.action)} ${event.entityType}`,
+            body: event.actor?.email ?? event.actor?.username ?? "System actor",
+            actor: event.module,
+            createdAt: event.createdAt,
+          }))}
+        />
+      </section>
+    </div>
+  );
+}
+
+function EventList({ rows, empty }: { rows: Array<{ id: string; title: string; body: string; actor: string; createdAt: string }>; empty: string }) {
+  if (!rows.length) {
+    return <p className="p-5 text-sm font-semibold text-[#74809a]">{empty}</p>;
+  }
+
+  return (
+    <div className="divide-y divide-[#edf1f7]">
+      {rows.slice(0, 8).map((row) => (
+        <div key={row.id} className="p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p className="text-sm font-black text-[#11143a]">{row.title}</p>
+            <span className="text-xs font-bold text-[#74809a]">{formatDateTime(row.createdAt)}</span>
+          </div>
+          <p className="mt-1 text-sm font-semibold leading-6 text-[#63708a]">{row.body}</p>
+          <p className="mt-2 text-[11px] font-black uppercase tracking-[0.08em] text-[#8a94a8]">{row.actor}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DetailGrid({ rows }: { rows: Array<[string, ReactNode]> }) {
   return (
     <div className="grid gap-2 md:grid-cols-2">
       {rows.map(([label, value]) => (
-        <div key={label} className="rounded-2xl border border-[#dfe8f6] bg-[#fbfcff] p-4">
-          <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#63708a]">{label}</p>
-          <div className="mt-1 text-sm font-bold leading-6 text-[#11143a]">{value}</div>
-        </div>
+        <DetailTile key={label} label={label} value={value} />
       ))}
+    </div>
+  );
+}
+
+function DetailTile({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-[#dfe8f6] bg-[#fbfcff] p-4">
+      <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#63708a]">{label}</p>
+      <div className="mt-1 text-sm font-bold leading-6 text-[#11143a]">{value}</div>
+    </div>
+  );
+}
+
+function SectionHeading({ title, eyebrow }: { title: string; eyebrow: string }) {
+  return (
+    <div>
+      <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#63708a]">{eyebrow}</p>
+      <h3 className="mt-1 text-xl font-black text-[#11143a]">{title}</h3>
     </div>
   );
 }
@@ -939,7 +1630,7 @@ function ModalFrame({ children, onClose }: { children: ReactNode; onClose: () =>
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#11143a]/55 p-4 backdrop-blur-md">
       <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Close recruitment modal" />
-      <div className="relative max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-[#dfe8f6] bg-white p-5 shadow-[0_30px_90px_rgba(17,20,58,0.28)]">
+      <div className="relative max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-[#dfe8f6] bg-white p-5 shadow-[0_30px_90px_rgba(17,20,58,0.28)]">
         <button type="button" onClick={onClose} className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-xl border border-[#dfe8f6] bg-white text-[#63708a] hover:text-[#3820d7]" aria-label="Close">
           <X size={17} />
         </button>
@@ -1074,6 +1765,53 @@ function candidateName(candidate?: Pick<RecruitmentCandidate, "firstName" | "las
   return candidate ? `${candidate.firstName} ${candidate.lastName}` : "Candidate";
 }
 
+function detailKey(entity: DetailEntity, id: string) {
+  return `${entity}:${id}`;
+}
+
+function detailEndpoint(entity: DetailEntity, id: string) {
+  const paths: Record<DetailEntity, string> = {
+    requisition: "requisitions",
+    candidate: "candidates",
+    application: "applications",
+    interview: "interviews",
+    offer: "offers",
+  };
+  return `/recruitment/${paths[entity]}/${id}`;
+}
+
+function detailTitle(entity: DetailEntity, row: DetailRecord) {
+  if (entity === "requisition") return (row as RecruitmentRequisition).title;
+  if (entity === "candidate") return candidateName(row as RecruitmentCandidate);
+  if (entity === "application") return candidateName((row as RecruitmentApplication).candidate);
+  if (entity === "interview") return candidateName((row as RecruitmentInterview).application?.candidate);
+  return `Offer for ${candidateName((row as RecruitmentOffer).application?.candidate)}`;
+}
+
+function detailStatus(entity: DetailEntity, row: DetailRecord) {
+  if (entity === "requisition") return (row as RecruitmentRequisition).status;
+  if (entity === "candidate") return (row as RecruitmentCandidate).status;
+  if (entity === "application") return (row as RecruitmentApplication).status;
+  if (entity === "interview") return (row as RecruitmentInterview).status;
+  return (row as RecruitmentOffer).status;
+}
+
+function applicationStageType(application: RecruitmentApplication): RecruitmentStageType {
+  return application.currentStage?.type ?? (application.status as RecruitmentStageType);
+}
+
+function nextApplicationStage(application: RecruitmentApplication): RecruitmentStageType | null {
+  const current = applicationStageType(application);
+  if (isApplicationTerminal(application.status)) return null;
+  const currentIndex = pipelineStageFlow.findIndex((stage) => stage.type === current);
+  const next = pipelineStageFlow.find((stage, index) => index > currentIndex && !stage.terminal);
+  return next?.type ?? null;
+}
+
+function isApplicationTerminal(status: RecruitmentApplicationStatus) {
+  return status === "HIRED" || status === "REJECTED" || status === "WITHDRAWN";
+}
+
 function humanize(value: string) {
   return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -1096,7 +1834,9 @@ function formatMoney(cents?: number | null, currency = "USD") {
 }
 
 function numberValue(value: FormDataEntryValue | null) {
-  const parsed = Number(value);
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
