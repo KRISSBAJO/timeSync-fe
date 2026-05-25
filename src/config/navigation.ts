@@ -303,7 +303,7 @@ export const appNavigation: NavigationItem[] = [
     icon: FlaskConical,
     permissions: ["qa.read", "qa.run"],
     group: "governance",
-    audiences: ["platform", "tenant-admin"],
+    audiences: ["platform"],
   },
   {
     title: "Settings",
