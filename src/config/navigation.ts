@@ -10,6 +10,7 @@ import {
   FileText,
   FilePenLine,
   Fingerprint,
+  FlaskConical,
   GitBranch,
   BriefcaseBusiness,
   LayoutDashboard,
@@ -294,6 +295,15 @@ export const appNavigation: NavigationItem[] = [
     group: "governance",
     audiences: ["platform", "tenant-admin", "hr", "auditor"],
     features: ["ANALYTICS"],
+  },
+  {
+    title: "QA Console",
+    href: "/qa",
+    description: "Smoke tests, regression runs, and build verification",
+    icon: FlaskConical,
+    permissions: ["qa.read", "qa.run"],
+    group: "governance",
+    audiences: ["platform", "tenant-admin"],
   },
   {
     title: "Settings",

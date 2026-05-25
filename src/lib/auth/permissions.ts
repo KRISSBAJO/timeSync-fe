@@ -52,5 +52,6 @@ export const ROUTE_REQUIREMENTS = [
   { href: "/tenants", permissions: ["tenants.settings.read", "platform.tenants.manage"] },
   { href: "/audit", permissions: ["audit.read", "activity.read", "outbox.read"] },
   { href: "/quality", permissions: ["analytics.read", "dashboard.write"] },
+  { href: "/qa", permissions: ["qa.read", "qa.run"] },
   { href: "/settings", permissions: ["tenants.settings.read", "tenants.branding.read"] },
 ] as const;
